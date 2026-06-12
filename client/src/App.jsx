@@ -78,6 +78,8 @@ function App() {
   const [result, setResult] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [serverAreas, setServerAreas] = useState([]);
+  const [loading, setLoading] = useState(false);
   
   // New States for CRUD
   const [records, setRecords] = useState([]);
@@ -100,6 +102,20 @@ function App() {
     if (saved) {
       setRecords(JSON.parse(saved));
     }
+  }, []);
+
+  // Load server areas
+  useEffect(() => {
+    const fetchAreas = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/areas');
+        const data = await res.json();
+        setServerAreas(data);
+      } catch (err) {
+        console.error('Failed to fetch server areas:', err);
+      }
+    };
+    fetchAreas();
   }, []);
 
   // Save records to localStorage
@@ -186,15 +202,29 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!search.trim()) return;
-    const found = records.find(
-      (item) => item.area.toLowerCase().includes(search.toLowerCase())
-    );
-    setResult(found || "notfound");
-    setTimeout(() => {
-      document.getElementById("search-results")?.scrollIntoView({ behavior: "smooth" });
-    }, 100);
+    setLoading(true);
+    try {
+      // Search local records first
+      const foundLocal = records.find(
+        (item) => item.area.toLowerCase().includes(search.toLowerCase())
+      );
+      // Search server areas
+      const foundServer = serverAreas.find(
+        (item) => item.area.toLowerCase().includes(search.toLowerCase())
+      );
+      // Show first found (local takes priority)
+      setResult(foundLocal || foundServer || "notfound");
+    } catch (err) {
+      console.error('Search failed:', err);
+      setResult("notfound");
+    } finally {
+      setLoading(false);
+      setTimeout(() => {
+        document.getElementById("search-results")?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    }
   };
 
   return (
@@ -283,7 +313,7 @@ function App() {
               <Search className="text-brand-accent w-5 h-5" />
               <input 
                 type="text" 
-                placeholder="Search saved area records..." 
+                placeholder="Search area (e.g., MVP Colony, Gajuwaka)..." 
                 className="w-full bg-transparent border-none outline-none text-white placeholder:text-gray-500"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -292,9 +322,10 @@ function App() {
             </div>
             <button 
               onClick={handleSearch}
-              className="bg-brand-accent text-brand-dark px-6 py-3 rounded-xl font-bold hover:shadow-glow transition-all active:scale-95"
+              disabled={loading}
+              className="bg-brand-accent text-brand-dark px-6 py-3 rounded-xl font-bold hover:shadow-glow transition-all active:scale-95 disabled:opacity-70"
             >
-              Search
+              {loading ? "Searching..." : "Search"}
             </button>
           </motion.div>
         </div>
@@ -386,7 +417,7 @@ function App() {
                 <div className="max-w-md mx-auto glass-card p-10 rounded-[2rem] text-center border-red-500/20">
                   <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
                   <h2 className="text-2xl font-bold mb-2">Record Not Found</h2>
-                  <p className="text-gray-400">No saved records found for "{search}".</p>
+                  <p className="text-gray-400">No records found for "{search}".</p>
                 </div>
               ) : (
                 <div className="max-w-4xl mx-auto">
@@ -397,14 +428,23 @@ function App() {
                             <MapPin className="text-brand-accent" />
                             <h2 className="text-4xl font-bold">{result.area}</h2>
                           </div>
-                          <div className="flex gap-4 text-sm text-gray-400">
-                            <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {new Date(result.timestamp).toLocaleDateString()}</span>
-                            <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {new Date(result.timestamp).toLocaleTimeString()}</span>
-                          </div>
+                          {result.timestamp && (
+                            <div className="flex gap-4 text-sm text-gray-400">
+                              <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {new Date(result.timestamp).toLocaleDateString()}</span>
+                              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {new Date(result.timestamp).toLocaleTimeString()}</span>
+                            </div>
+                          )}
+                          {result.waterSource && (
+                            <div className="flex gap-4 text-sm text-gray-400 mt-2">
+                              <span className="flex items-center gap-1"><Droplets className="w-4 h-4" /> Source: {result.waterSource}</span>
+                              <span className="flex items-center gap-1"><Waves className="w-4 h-4" /> Pipe Age: {result.pipeAge} years</span>
+                              <span className="flex items-center gap-1">Sanitation: {result.sanitation}</span>
+                            </div>
+                          )}
                         </div>
-                        <div className={`px-8 py-3 rounded-full font-black text-xl flex items-center gap-2 ${result.overall === 'Safe' ? 'bg-green-500/20 text-green-400' : result.overall === 'Moderate' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
-                          {result.overall === 'Safe' ? <CheckCircle2 /> : <AlertCircle />}
-                          {result.overall}
+                        <div className={`px-8 py-3 rounded-full font-black text-xl flex items-center gap-2 ${(result.result || result.overall) === 'Safe' ? 'bg-green-500/20 text-green-400' : (result.result || result.overall) === 'Moderate' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+                          {(result.result || result.overall) === 'Safe' ? <CheckCircle2 /> : <AlertCircle />}
+                          {result.result || result.overall}
                         </div>
                       </div>
 
@@ -414,7 +454,35 @@ function App() {
                         <StatusMetric label="Fluoride" value={result.fluoride} unit="ppm" status={getFluorideStatus(result.fluoride)} />
                         <StatusMetric label="Lead" value={result.lead} unit="ppm" status={getLeadStatus(result.lead)} />
                         <StatusMetric label="Turbidity" value={result.turbidity} unit="NTU" status={getTurbidityStatus(result.turbidity)} />
+                        {result.chlorine !== undefined && (
+                          <StatusMetric label="Chlorine" value={result.chlorine} unit="ppm" status={result.chlorine >= 0.2 && result.chlorine <= 1.5 ? {label: 'Good', color: 'text-green-400'} : {label: 'Check', color: 'text-yellow-400'}} />
+                        )}
+                        {result.coliform !== undefined && (
+                          <div className="p-6 rounded-3xl bg-white/5 border border-white/5 hover:border-brand-accent/20 transition-all group">
+                            <p className="text-xs text-gray-500 mb-1 uppercase tracking-widest font-bold">Coliform</p>
+                            <div className="flex items-baseline gap-1 mb-2">
+                              <span className={`text-3xl font-black ${result.coliform ? 'text-red-400' : 'text-green-400'}`}>{result.coliform ? 'Detected' : 'Not Detected'}</span>
+                            </div>
+                          </div>
+                        )}
+                        {result.ecoli !== undefined && (
+                          <div className="p-6 rounded-3xl bg-white/5 border border-white/5 hover:border-brand-accent/20 transition-all group">
+                            <p className="text-xs text-gray-500 mb-1 uppercase tracking-widest font-bold">E. coli</p>
+                            <div className="flex items-baseline gap-1 mb-2">
+                              <span className={`text-3xl font-black ${result.ecoli ? 'text-red-400' : 'text-green-400'}`}>{result.ecoli ? 'Detected' : 'Not Detected'}</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
+
+                      {result.suggestions && (
+                        <div className="mt-6 p-6 rounded-3xl bg-brand-accent/10 border border-brand-accent/20">
+                          <h3 className="text-lg font-bold text-brand-accent mb-2 flex items-center gap-2">
+                            <Info className="w-5 h-5" /> Suggestions
+                          </h3>
+                          <p className="text-gray-300">{result.suggestions}</p>
+                        </div>
+                      )}
                    </div>
                 </div>
               )}
