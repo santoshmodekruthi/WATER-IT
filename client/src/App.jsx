@@ -59,6 +59,24 @@ const getTurbidityStatus = (val) => {
   return { label: "High", color: "text-red-400", quality: "Unsafe" };
 };
 
+const getPrecautions = (status, data) => {
+  const precautions = [];
+  if (status === "Toxic" || status === "Unsafe") {
+    precautions.push("⚠️ Do NOT drink this water without proper treatment!");
+    precautions.push("Use only for non-potable purposes like cleaning, gardening etc.");
+    precautions.push("Boiling alone may NOT be sufficient - use advanced purification (RO + UV + UF).");
+    if (data.lead && data.lead > 0.05) precautions.push("High lead detected - consult local water filter certified for lead removal is a must!");
+    if (data.ecoli || data.coliform) precautions.push("Bacterial contamination (E. coli/Coliform detected - ensure proper disinfection required!");
+    if (data.tds && data.tds > 1000) precautions.push("Very high TDS - use reverse osmosis (RO) system!");
+  } else if (status === "Moderate") {
+    precautions.push("⚠️ Use with caution - consider treatment before drinking!");
+    precautions.push("Boiling + simple filtration recommended!");
+    if (data.tds && data.tds > 500) precautions.push("High TDS - consider using an RO filter!");
+    if (data.fluoride && data.fluoride > 1.5) precautions.push("High fluoride - use defluoridation methods!");
+  }
+  return precautions;
+};
+
 const calculateOverallQuality = (tds, ph, fluoride, lead, turbidity) => {
   const statuses = [
     getTDSStatus(tds).quality,
@@ -91,7 +109,8 @@ function App() {
     ph: "",
     fluoride: "",
     lead: "",
-    turbidity: ""
+    turbidity: "",
+    chlorine: ""
   });
   const [errors, setErrors] = useState({});
   const [editingId, setEditingId] = useState(null);
@@ -138,6 +157,7 @@ function App() {
     if (!formData.fluoride || formData.fluoride < 0) newErrors.fluoride = "Valid Fluoride is required";
     if (!formData.lead || formData.lead < 0) newErrors.lead = "Valid Lead is required";
     if (!formData.turbidity || formData.turbidity < 0) newErrors.turbidity = "Valid Turbidity is required";
+    if (formData.chlorine !== "" && formData.chlorine < 0) newErrors.chlorine = "Valid Chlorine is required";
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -164,6 +184,7 @@ function App() {
       fluoride: parseFloat(formData.fluoride),
       lead: parseFloat(formData.lead),
       turbidity: parseFloat(formData.turbidity),
+      chlorine: formData.chlorine !== "" ? parseFloat(formData.chlorine) : undefined,
       overall: overall,
       timestamp: new Date().toISOString()
     };
@@ -176,7 +197,7 @@ function App() {
     }
 
     // Reset form
-    setFormData({ area: "", customArea: "", tds: "", ph: "", fluoride: "", lead: "", turbidity: "" });
+    setFormData({ area: "", customArea: "", tds: "", ph: "", fluoride: "", lead: "", turbidity: "", chlorine: "" });
     setShowForm(false);
   };
 
@@ -196,7 +217,8 @@ function App() {
       ph: record.ph,
       fluoride: record.fluoride,
       lead: record.lead,
-      turbidity: record.turbidity
+      turbidity: record.turbidity,
+      chlorine: record.chlorine || ""
     });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -387,6 +409,7 @@ function App() {
                     <InputGroup label="Fluoride (ppm)" value={formData.fluoride} error={errors.fluoride} onChange={(val) => setFormData({...formData, fluoride: val})} placeholder="e.g. 0.8" />
                     <InputGroup label="Lead (ppm)" value={formData.lead} error={errors.lead} onChange={(val) => setFormData({...formData, lead: val})} placeholder="e.g. 0.01" />
                     <InputGroup label="Turbidity (NTU)" value={formData.turbidity} error={errors.turbidity} onChange={(val) => setFormData({...formData, turbidity: val})} placeholder="e.g. 0.5" />
+                    <InputGroup label="Chlorine (ppm)" value={formData.chlorine} error={errors.chlorine} onChange={(val) => setFormData({...formData, chlorine: val})} placeholder="e.g. 0.5 (optional)" />
                   </div>
 
                   <button 
@@ -483,6 +506,30 @@ function App() {
                           <p className="text-gray-300">{result.suggestions}</p>
                         </div>
                       )}
+                      
+                      {/* Precautions */}
+                      {(() => {
+                        const status = result.result || result.overall;
+                        const precautions = getPrecautions(status, result);
+                        if (precautions.length > 0) {
+                          return (
+                            <div className="mt-6 p-6 rounded-3xl bg-red-500/10 border border-red-500/20">
+                              <h3 className="text-lg font-bold text-red-400 mb-4 flex items-center gap-2">
+                                <AlertTriangle className="w-5 h-5" /> Precautions
+                              </h3>
+                              <ul className="space-y-2">
+                                {precautions.map((precaution, idx) => (
+                                  <li key={idx} className="text-gray-300 flex items-start gap-2">
+                                    <span className="text-red-400 mt-1">•</span>
+                                    {precaution}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                    </div>
                 </div>
               )}
